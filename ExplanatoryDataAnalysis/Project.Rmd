@@ -1,0 +1,258 @@
+---
+title: <center> GE 461 Introduction to Data Science Project 1 </center>
+author: <center> <h2> Lecturer - Savaş Dayanık </h2> Mertbora Erbay 21703550, Utku Deniz Dinçtürk 21801633, Ataberk Çakır 21703127 </center>
+                
+date: <center> 2022-04-09 </center>
+output: 
+  bookdown::html_document2: 
+    theme: readable
+    number_sections: false
+    code_folding: "hide"
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(RSQLite)
+library(DBI)
+library(tidyverse)
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+con <- dbConnect(SQLite(),"/Users/mertboraerbay/Desktop/University/GE461/Project_1/Project/data/dodgers.sqlite")
+
+dbListTables(con)
+
+tbl(con, "events") %>%
+collect() %>%
+mutate(
+day_of_week = factor(day_of_week, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")),
+month = factor(month, levels = c("APR","MAY","JUN","JUL","AUG","SEP","OCT"))) %>%
+mutate_if(is.character, factor) %>%
+mutate(temp = round((temp- 32)*5/9)) -> events
+
+```
+
+
+## The Problem
+
+The Dodgers professional baseball team owns a 56,000 seat stadium and they are interested in increasing attendance of their fans to baseball games. The team would like to know whether giving away promotional bobbleheads increase the attendance to their teams games. The dataset provided can be found below, the dataset includes data from 81 games.
+
+```{r}
+summary(events)
+```
+
+## Executive Summary
+
+In order to observe whether bobblehead promotions increase attendance, Welch's Two Sample t-test was conducted on bobblehead promotions and attendance. This test showed with 95% confidence that bobblehead promotions increase attendance by a margin between 11523 to 16491 attendees. To further support this claim, multiple regression analysis was conducted on all criteria. After some further t-test to decide which criteria to remove from the model a better model was obtained. Finally backwards elimination method was used to further simplify the multiple regression model and it was observed that, with the best possible multiple regression model, bobbleheads do infact stay as a criteria. This further supports that bobblehead promotions are correlated with attendance. Combining this with the first t-test conducted, shows a directly proportional relationship between whether bobblehead promotions were run and the attendance to the games.
+
+
+## Results 
+
+To see whether there was a correlation between the attendance to the games and whether bobblehead promotions were run, the first step was to visually observe the attendance with and without the promotion runs.
+
+```{r}
+events %>% 
+  ggplot(aes(bobblehead, attend)) +
+  geom_boxplot()
+```
+
+After looking at the box plot of attendance and whether bobblehead promotions were run or not, it seemed to suggest that a significant difference were present. Therefore in order to be sure,
+he next step was to conduct a Welch Two Sample t-test between the values of attendance and whether bobblehead promotions were present or not in a given game. 
+
+```{r}
+ t.test(x=events$attend[events$bobblehead=="YES"], y=events$attend[events$bobblehead=="NO"])
+```
+
+Conducting a t-test at a significance level of 0.05, it was seen that there wasn't enough evidence to conclude that there isn't a relation between attendance and bobblehead promotions, on the contrary, the test suggested that it was likely to be a strong correlation between attendance and whether bobblehead promotions were run considering the p-value of test is almost zero. It is also observed that a 95% confidence interval for the difference between attendance with bobblehead promotions and without, is a positive difference between 11522.66 and 16490.75 attendees. This suggests that bobblehead promotions do in-fact increase attendance. 
+
+## Validating the Results
+However in order to be sure that bobblehead promotions do not coincide with other factors in way that would mislead this test, it was decided to see which criteria in the dataset affected attendance. In order to achieve this, it was decided to create a multiple regression model with all criteria and gradually remove criteria until the results no longer improve. To test the effectiveness of the regression model, a random sample of 75% of the dataset was used to train the model and the remaining 21 games were used to test how successful the predictions were. It was decided to use Mean Absolute Error to compare the models. In order to be consistent through out all the tests between the models, same seed was used to randomly select from the dataset to create a train and a test sample.
+
+```{r}
+set.seed(345)
+smp_size <- floor(0.75 * nrow(events))
+
+train_ind <- sample(seq_len(nrow(events)), size = smp_size)
+
+train <- events[train_ind, ]
+test <- events[-train_ind, ]
+
+model <- lm(formula = attend ~ month + day_of_week + bobblehead + temp + skies + day_night + cap + shirt + fireworks + opponent, data = train)
+
+prediction <- predict(model,test)
+
+mean(abs(prediction-test$attend))
+```
+
+
+
+After running the first model, in order to speed up the elimination process of criteria, Welch Two Sample t-test were run between some of the criteria and attendance in order to see whether they are correlated or not. If a criteria does not seem to correlate with attendance, removing this criteria would theoratically improve the accuracy of the model.
+
+The first criteria to be tested was whether it was day or night during the match.
+
+```{r}
+t.test(x=events$attend[events$day_night=='Day'],
+       y=events$attend[events$day_night=='Night'])
+```
+
+The test seems to suggest that whether the game is played during day or night is not correlated to attendance at a significance level of 0.05.
+
+```{r,echo = FALSE}
+events %>% 
+  ggplot(aes(day_night, attend)) +
+  geom_boxplot()
+```  
+
+Observing the plot, the results of the t-test seems to be correct. 
+
+```{r}
+model2 <- lm(formula = attend ~ month + day_of_week + bobblehead + temp + skies + cap + shirt + fireworks + opponent, data = train)
+
+prediction2 <- predict(model2,test)
+
+mean(abs(prediction2-test$attend))
+```  
+
+Removing the day or night criteria from the original regression model, we can also observe a decrease in MAE of the predictions.
+
+The same process was applied to some of the remaining criteria.
+
+```{r}
+#Testing whether shirt promotions are correlated with attendance
+t.test(x=events$attend[events$shirt=='YES'],
+       y=events$attend[events$shirt=='NO'])
+
+model3 <- lm(formula = attend ~ month + day_of_week + bobblehead + temp + skies + cap + fireworks + opponent, data = train)
+
+prediction3 <- predict(model3,test)
+
+mean(abs(prediction3-test$attend))
+
+
+#Testing whether cap promotions are correlated with attendance
+
+t.test(x=events$attend[events$cap=='YES'],
+       y=events$attend[events$cap=='NO'])
+
+model4 <- lm(formula = attend ~ month + day_of_week + bobblehead + temp + skies + fireworks + opponent, data = train)
+
+prediction4 <- predict(model4,test)
+
+mean(abs(prediction4-test$attend))
+
+
+#Testing whether skies are correlated to attendance
+t.test(x=events$attend[events$skies=='Cloudy'],
+       y=events$attend[events$skies=='Clear'])
+
+
+model5 <- lm(formula = attend ~ month + day_of_week + bobblehead + temp + fireworks + opponent, data = train)
+
+prediction5 <- predict(model5,test)
+
+mean(abs(prediction5-test$attend))
+
+```
+
+Using this process, it is observed that removing uncorrelated criteria from the model decreases the MAE which in turn means that the model is more accurate. However, there is one criteria that seems to not fit into this logic which is whether fireworks are present or not.
+
+```{r}
+t.test(x=events$attend[events$fireworks=='NO'],
+       y=events$attend[events$fireworks=='YES'])
+```
+
+With a p-value of 0.98, we can see that whether fireworks are present or not, is very unlikely to be correlated to attendance.
+
+```{r,echo = FALSE}
+events %>% 
+  ggplot(aes(fireworks, attend)) +
+  geom_boxplot()
+```
+
+The plot of attendance compared to whether there were fireworks or not also seems to suggest that there isn't a correlation. However, when the model is run without fireworks criteria we observe that the MAE increases.
+
+```{r}
+model6 <- lm(formula = attend ~ month + day_of_week + bobblehead + temp+ opponent, data = train)
+
+prediction6 <- predict(model6,test)
+
+mean(abs(prediction6-test$attend))
+```
+
+Coming to this point, we decided that a smarter approach would be to use backwards elimination method that is built into R. Applying backwards elimination to the model;
+
+```{r}
+step(model5, direction = "backward", trace=FALSE )
+```
+
+It is observed that the day of week, opponent, whether bobblehead promotions were run and whether fireworks were present or not seems to yield the best result in terms of accurately predicting attendance.
+
+```{r}
+finalmodel <- lm(formula = attend ~ day_of_week + bobblehead + fireworks + opponent, data = train)
+
+predictionfinal <- predict(finalmodel,test)
+
+mean(abs(predictionfinal-test$attend))
+```
+
+Observing the errors of the model without backwards elimination and after backwards elimination, we can see that the model with backwards elimination is better considering the errrors are consistently smaller. 
+
+```{r}
+barplot(prediction5-test$attend,col='blue')     #backward elimination yapmadan önce
+barplot(predictionfinal-test$attend,col='green') #backward elimination yaptıktan sonra
+```
+
+So, with the best multiple regression model to predict attendance including bobblehead promotions, we can see that bobblehead promotions are infact contributing to attendance of the games and positively considering the t-test conducted earlier.
+
+## Trying to Explain Fireworks
+
+In order to understand why a seemingly uncorrelated criteria is affecting the model positively, ANOVA test were conducted on two models, one that includes fireworks and one that doesn't including not only the train dataset but the whole dataset.
+
+```{r}
+finalmodel <- lm(formula = attend ~ day_of_week + bobblehead + fireworks + opponent, data = events)
+modelnof = lm(formula = attend ~ day_of_week + bobblehead + opponent, data = events)
+
+anova(finalmodel,modelnof)
+```
+
+Anova test also seems to suggest that the model with fireworks included is in fact better. So, in order to understand why, some relationships between fireworks and other criteria were investigated.
+
+```{r, echo = FALSE}
+plot(events$day_of_week[events$fireworks=='YES'])
+events %>% ggplot(aes(day_of_week)) + geom_bar()
+```
+
+Observing the two plots above, we can see that fireworks are present almost exclusively on Fridays. In order to check whether this data is misleading, the second plot was made to see whether games were mostly played in Fridays, however this does not seem to be the case.
+
+```{r, echo = FALSE}
+plot(events$skies[events$fireworks=='YES'])
+plot(events$day_night[events$fireworks=='YES'])
+```
+
+The above two plots were observed to see whether fireworks were dependent on the skies and the time of day. We can see that the majority of the fireworks were used on clear skies.
+However checking which skies were present during Friday games showed us that most Friday games were clear skies, and since most of the fireworks were on Fridays, skies and fireworks may not be correlated. Below you can see the graph of events that took place on Friday and whether they were day or night.
+
+
+```{r, echo = FALSE}
+plot(events$day_night[events$day_of_week=="Friday"])
+```
+
+
+However checking which skies were present during Friday games showed us that most Friday games were clear skies, and since most of the fireworks were on Fridays, skies and fireworks may not be correlated.
+
+
+```{r, echo = FALSE}
+plot(events$day_of_week,events$attend)
+```
+
+Finally checking whether most attendance were on Fridays, we were surprised to find out they weren't. This however may be the key to understand why fireworks affect the regression model positively. This is explained in following ways:
+
+-At which day a game is played is an unbiased estimator of whether the game is played at day or night since only at Fridays the night games are played. This explains why day or night criteria being removed from the regression improves the model.
+
+-Comparing the day of week compared to attendance, we can see that the model has a bias against Tuesdays since Tuesday are generally attracting more attendance.
+
+-Though, fireworks being mostly in Fridays, means that including fireworks criteria in the model leads to Fridays having more weight in the results. Fridays, being the day with the attendance that is most close to the average of attendance between days, this leads to the predictions being closer to the mean and counteract the bias Tuesday's create for attendance.
+
+-Finally, fireworks being present in the model adds more variance to the model, hence a regression model with more variance in one of the criteria works more accurately.
+
+Observing these, it may be possible to explain why fireworks criteria, seeming uncorrelated to attendance on their own, affecting the regression model positively by the reasoning stated above.
